@@ -1852,14 +1852,18 @@ if __name__ == "__main__":
 #
 # 2.
 # PowerShell：
-# & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-#     --remote-debugging-port=9222 `
-#     --user-data-dir="C:\Users\User\selenium-chrome-profile"
+r"""
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+    --remote-debugging-port=9222 `
+    --user-data-dir="C:\Users\User\selenium-chrome-profile"
+"""
 #
 # Mac Terminal:
-# /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-#   --remote-debugging-port=9222 \
-#   --user-data-dir="$HOME/selenium-chrome-profile"
+r"""
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/selenium-chrome-profile"
+"""
 #
 # 3.
 # Chrome 中：
