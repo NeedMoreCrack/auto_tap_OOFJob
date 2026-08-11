@@ -597,6 +597,14 @@ def collect_job_links(
         )
 
         # =================================================
+        # 記錄這一輪滾動前的頁面高度
+        # =================================================
+
+        old_height = driver.execute_script(
+            "return document.body.scrollHeight"
+        )
+
+        # =================================================
         # 模擬自然方式滾動到底部
         # =================================================
 
@@ -605,40 +613,35 @@ def collect_job_links(
         )
 
         # =================================================
-        # 等待 求職網 AJAX / DOM 載入
+        # 等待求職網 AJAX / DOM 載入
         # =================================================
-
-        load_pause = random.uniform(
-            *pause_range
-        )
-
-        print(
-            f"  已滾到底部，"
-            f"等待新職缺載入... "
-            f"{load_pause:.1f} 秒"
-        )
-
-        time.sleep(
-            load_pause
-        )
-
-        # =================================================
-        # 新頁面高度
-        # =================================================
-
-        old_height = driver.execute_script(
-            "return document.body.scrollHeight"
-        )
-
-        scroll_to_bottom_and_trigger_load(
-            driver
-        )
 
         new_page_height = wait_for_new_content(
             driver,
             old_height,
             timeout=5
         )
+
+        # 如果高度沒有增加，再額外等待一小段時間。
+        # 有些頁面雖然開始載入，但 DOM 更新會比較慢。
+        if new_page_height == old_height:
+
+            load_pause = random.uniform(
+                *pause_range
+            )
+
+            print(
+                f"  尚未偵測到頁面高度增加，"
+                f"再等待 {load_pause:.1f} 秒"
+            )
+
+            time.sleep(
+                load_pause
+            )
+
+            new_page_height = driver.execute_script(
+                "return document.body.scrollHeight"
+            )
 
         print(
             f"  頁面高度："
@@ -1502,9 +1505,20 @@ def visit_jobs(
         long_break_range=(30, 60)
 ):
     """
-    逐筆開啟職缺。
+    逐筆瀏覽職缺。
 
-    新增功能：
+    這個版本不再每一筆建立 / 關閉新的 Tab。
+
+    流程：
+    1. collect_job_links() 先把所有職缺網址收集完成
+    2. 直接使用目前這一個 Chrome Tab
+    3. 每筆透過 driver.get(href) 切換到下一個職缺
+    4. 不使用 new_window()
+    5. 不使用 close()
+    6. 不使用 switch_to.window()
+
+    這樣可以大幅降低 macOS 因為 Chrome Tab 開關、
+    切換而把 Chrome 視窗強制拉到前景的情況。
 
     每筆抓：
         職缺名稱
@@ -1516,10 +1530,6 @@ def visit_jobs(
     每 50 筆：
         建立新的 LOG
     """
-
-    main_window = (
-        driver.current_window_handle
-    )
 
     next_batch_target = random.randint(
         *batch_size_range
@@ -1542,6 +1552,25 @@ def visit_jobs(
     # =============================================
 
     current_log = create_log_file()
+
+    print()
+
+    print(
+        "=" * 100
+    )
+
+    print(
+        "職缺連結已全部收集完成。"
+    )
+
+    print(
+        "接下來使用同一個 Chrome Tab 依序瀏覽，"
+        "不再建立 / 關閉新分頁。"
+    )
+
+    print(
+        "=" * 100
+    )
 
     for idx, (
             job_no,
@@ -1596,27 +1625,43 @@ def visit_jobs(
         try:
 
             # =====================================
-            # 建立新 Tab
-            # =====================================
-
-            driver.switch_to.new_window(
-                "tab"
-            )
-
-            # =====================================
-            # 開啟職缺
+            # 使用目前同一個 Tab 開啟職缺
+            #
+            # 不再使用：
+            #
+            # driver.switch_to.new_window("tab")
+            # driver.close()
+            # driver.switch_to.window(...)
             # =====================================
 
             driver.get(
                 href
             )
 
+            # =====================================
             # 等待初步載入
+            # =====================================
+
+            initial_load_pause = random.uniform(
+                1.5,
+                3
+            )
+
+            print(
+                f"  等待頁面載入..."
+                f"{initial_load_pause:.1f} 秒"
+            )
+
             time.sleep(
-                random.uniform(
-                    1.5,
-                    3
-                )
+                initial_load_pause
+            )
+
+            # =====================================
+            # 確保從頁面頂部開始
+            # =====================================
+
+            driver.execute_script(
+                "window.scrollTo(0, 0);"
             )
 
             # =====================================
@@ -1737,7 +1782,10 @@ def visit_jobs(
                 f"{e}"
             )
 
+            # =====================================
             # 失敗資訊也寫 LOG
+            # =====================================
+
             write_log(
                 current_log,
                 "=" * 100
@@ -1779,68 +1827,27 @@ def visit_jobs(
             # 失敗也算一筆
             jobs_in_current_log += 1
 
-        finally:
-
-            # =====================================
-            # 關閉職缺 Tab
-            # =====================================
-
-            try:
-
-                if (
-                        driver.current_window_handle
-                        != main_window
-                ):
-
-                    driver.close()
-
-            except Exception as e:
-
-                print(
-                    f"  關閉分頁失敗："
-                    f"{type(e).__name__}: "
-                    f"{e}"
-                )
-
-            # =====================================
-            # 切回 求職網 搜尋頁
-            # =====================================
-
-            try:
-
-                driver.switch_to.window(
-                    main_window
-                )
-
-            except Exception as e:
-
-                print(
-                    f"  無法切回搜尋頁："
-                    f"{type(e).__name__}: "
-                    f"{e}"
-                )
-
-                break
-
         # =========================================
         # 單筆瀏覽之間隨機等待
         # =========================================
 
         count_since_break += 1
 
-        short_break = random.uniform(
-            2,
-            5
-        )
+        if idx < total_jobs:
 
-        print(
-            f"下一筆前等待："
-            f"{short_break:.1f} 秒"
-        )
+            short_break = random.uniform(
+                2,
+                5
+            )
 
-        time.sleep(
-            short_break
-        )
+            print(
+                f"下一筆前等待："
+                f"{short_break:.1f} 秒"
+            )
+
+            time.sleep(
+                short_break
+            )
 
         # =========================================
         # 每一批長休息
@@ -1881,7 +1888,6 @@ def visit_jobs(
                     *batch_size_range
                 )
             )
-
 
 # =========================================================
 # MAIN
