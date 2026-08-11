@@ -295,6 +295,178 @@ def find_link_in_card(card):
 
     return None
 
+def scroll_to_bottom_and_trigger_load(driver):
+    """
+    模擬比較自然的方式接近頁面底部，
+    避免一次瞬間到底導致 Lazy Load / IntersectionObserver 沒有觸發。
+
+    流程：
+    1. 分段往下
+    2. 接近底部時放慢
+    3. 到達底部等待
+    4. 往上回彈一小段
+    5. 再次回到底部
+    """
+
+    # =====================================================
+    # 1. 取得目前位置
+    # =====================================================
+
+    current_y = driver.execute_script(
+        "return window.pageYOffset;"
+    )
+
+    page_height = driver.execute_script(
+        "return document.body.scrollHeight;"
+    )
+
+    viewport_height = driver.execute_script(
+        "return window.innerHeight;"
+    )
+
+    bottom_y = page_height - viewport_height
+
+    print(
+        f"  目前位置：{int(current_y)} / "
+        f"{int(bottom_y)}"
+    )
+
+    # =====================================================
+    # 2. 分段往底部移動
+    # =====================================================
+
+    while current_y < bottom_y:
+
+        remaining = bottom_y - current_y
+
+        # 離底部還很遠
+        if remaining > 2500:
+            distance = random.randint(
+                700,
+                1100
+            )
+
+        # 開始接近底部
+        elif remaining > 1000:
+            distance = random.randint(
+                400,
+                700
+            )
+
+        # 最後一小段慢慢滑
+        else:
+            distance = random.randint(
+                150,
+                350
+            )
+
+        driver.execute_script(
+            "window.scrollBy(0, arguments[0]);",
+            distance
+        )
+
+        time.sleep(
+            random.uniform(
+                0.15,
+                0.4
+            )
+        )
+
+        current_y = driver.execute_script(
+            "return window.pageYOffset;"
+        )
+
+        # 頁面可能在滾動期間又增加高度
+        page_height = driver.execute_script(
+            "return document.body.scrollHeight;"
+        )
+
+        viewport_height = driver.execute_script(
+            "return window.innerHeight;"
+        )
+
+        bottom_y = (
+            page_height
+            - viewport_height
+        )
+
+    # =====================================================
+    # 3. 確實到底
+    # =====================================================
+
+    driver.execute_script(
+        "window.scrollTo(0, document.body.scrollHeight);"
+    )
+
+    bottom_pause = random.uniform(
+        1.0,
+        2.0
+    )
+
+    print(
+        f"  已抵達底部，等待 "
+        f"{bottom_pause:.1f} 秒"
+    )
+
+    time.sleep(
+        bottom_pause
+    )
+
+    # =====================================================
+    # 4. 往上回彈
+    #
+    # 有些網站如果第一次到底沒有觸發 lazy load，
+    # 往上一點再回到底部比較容易觸發
+    # =====================================================
+
+    bounce_distance = random.randint(
+        400,
+        800
+    )
+
+    driver.execute_script(
+        "window.scrollBy(0, arguments[0]);",
+        -bounce_distance
+    )
+
+    bounce_pause = random.uniform(
+        0.6,
+        1.2
+    )
+
+    print(
+        f"  往上回彈 {bounce_distance}px，"
+        f"等待 {bounce_pause:.1f} 秒"
+    )
+
+    time.sleep(
+        bounce_pause
+    )
+
+    # =====================================================
+    # 5. 再次慢慢到底
+    # =====================================================
+
+    driver.execute_script(
+        """
+        window.scrollTo({
+            top: document.body.scrollHeight,
+            behavior: 'smooth'
+        });
+        """
+    )
+
+    time.sleep(
+        random.uniform(
+            1.0,
+            1.8
+        )
+    )
+
+    # 最後保險
+    driver.execute_script(
+        "window.scrollTo(0, document.body.scrollHeight);"
+    )
 
 def collect_job_links(
         driver,
@@ -425,29 +597,11 @@ def collect_job_links(
         )
 
         # =================================================
-        # 滾到最下方
+        # 模擬自然方式滾動到底部
         # =================================================
 
-        driver.execute_script(
-            """
-            window.scrollTo({
-                top: document.body.scrollHeight,
-                behavior: 'smooth'
-            });
-            """
-        )
-
-        # 等 smooth scroll
-        time.sleep(
-            random.uniform(
-                1.0,
-                1.8
-            )
-        )
-
-        # 再強制到底
-        driver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);"
+        scroll_to_bottom_and_trigger_load(
+            driver
         )
 
         # =================================================
@@ -472,8 +626,18 @@ def collect_job_links(
         # 新頁面高度
         # =================================================
 
-        new_page_height = driver.execute_script(
+        old_height = driver.execute_script(
             "return document.body.scrollHeight"
+        )
+
+        scroll_to_bottom_and_trigger_load(
+            driver
+        )
+
+        new_page_height = wait_for_new_content(
+            driver,
+            old_height,
+            timeout=5
         )
 
         print(
@@ -1160,6 +1324,48 @@ def extract_job_detail(
         "salary": salary,
     }
 
+def wait_for_new_content(
+        driver,
+        old_height,
+        timeout=5
+):
+    """
+    等待頁面因 Lazy Load 而增加高度。
+
+    有增加：
+        return 新高度
+
+    timeout 都沒增加：
+        return 原本高度
+    """
+
+    start_time = time.time()
+
+    while (
+        time.time() - start_time
+        < timeout
+    ):
+
+        new_height = driver.execute_script(
+            "return document.body.scrollHeight"
+        )
+
+        if new_height > old_height:
+
+            print(
+                f"  偵測到頁面高度增加："
+                f"{old_height} -> {new_height}"
+            )
+
+            return new_height
+
+        time.sleep(
+            0.5
+        )
+
+    return driver.execute_script(
+        "return document.body.scrollHeight"
+    )
 
 # =========================================================
 # 模擬閱讀
