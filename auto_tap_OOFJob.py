@@ -1900,7 +1900,7 @@ if __name__ == "__main__":
     )
 
     print(
-        "OneO4 自動職缺瀏覽程式"
+        "OOF 自動職缺瀏覽程式"
     )
 
     print(
