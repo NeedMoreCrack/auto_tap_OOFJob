@@ -156,7 +156,7 @@ def attach_to_existing_chrome(playwright):
 
 def switch_to_job_list_page(
         context,
-        url_keyword="求職網.com.tw/jobs/search"
+        url_keyword="104.com.tw/jobs/search"
 ):
     """
     從目前 Chrome 已開啟的頁面中，
