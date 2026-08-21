@@ -13,7 +13,7 @@ import random
 # LOG 設定
 # =========================================================
 
-LOG_MAX_JOBS = 50
+LOG_MAX_JOBS = 1000
 
 # 目前這支 Python Script 所在目錄
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -500,7 +500,7 @@ def set_page_number(
         page_number
 ):
     """
-    保留目前 104 搜尋條件，
+    保留目前 求職網 搜尋條件，
     只修改 page= 分頁參數。
     """
     parts = urlsplit(url)
@@ -683,12 +683,12 @@ def wait_for_job_cards(
 
 def collect_job_links(
         driver,
-        max_jobs=500,
-        max_pages=50,
+        max_jobs=1000,
+        max_pages=100,
         pause_range=(1.2, 2.5)
 ):
     """
-    使用 104 本身的 page= 分頁收集職缺。
+    使用 求職網 本身的 page= 分頁收集職缺。
 
     已完全取消原本的：
     1. 無限往下 Scroll

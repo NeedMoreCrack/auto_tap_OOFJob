@@ -12,9 +12,9 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # 基本設定
 # =========================================================
 
-LOG_MAX_JOBS = 50
-MAX_JOBS = 500
-MAX_PAGES = 50
+LOG_MAX_JOBS = 1000
+MAX_JOBS = 1000
+MAX_PAGES = 10
 
 CDP_URL = "http://127.0.0.1:9222"
 
@@ -156,11 +156,11 @@ def attach_to_existing_chrome(playwright):
 
 def switch_to_job_list_page(
         context,
-        url_keyword="104.com.tw/jobs/search"
+        url_keyword="求職網.com.tw/jobs/search"
 ):
     """
     從目前 Chrome 已開啟的頁面中，
-    找出 104 職缺搜尋頁。
+    找出 求職網 職缺搜尋頁。
     """
 
     print("目前所有分頁:")
@@ -185,7 +185,7 @@ def switch_to_job_list_page(
 
     if matched_page is None:
         raise RuntimeError(
-            "找不到 104 職缺搜尋列表頁。"
+            "找不到 求職網 職缺搜尋列表頁。"
         )
 
     try:
@@ -421,7 +421,7 @@ def collect_job_links(
         max_pages=MAX_PAGES
 ):
     """
-    用 104 本身的 page= 分頁收集職缺。
+    用 求職網 本身的 page= 分頁收集職缺。
 
     不再使用：
         無限往下滾
@@ -1540,7 +1540,7 @@ def main():
             )
 
             print(
-                "1. 是否停留在 104 搜尋列表"
+                "1. 是否停留在 求職網 搜尋列表"
             )
 
             print(
@@ -1548,7 +1548,7 @@ def main():
             )
 
             print(
-                "3. 104 DOM 是否改版"
+                "3. 求職網 DOM 是否改版"
             )
 
             return
@@ -1634,7 +1634,7 @@ r"""
 #
 # 啟動後：
 #
-# 1. 手動開 104 搜尋頁
+# 1. 手動開 求職網 搜尋頁
 # 2. 手動通過 Cloudflare
 # 3. 執行這支 Python
 #
