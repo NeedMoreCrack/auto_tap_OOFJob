@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 LOG_MAX_JOBS = 1000
 MAX_JOBS = 1000
-MAX_PAGES = 10
+MAX_PAGES = 100
 
 CDP_URL = "http://127.0.0.1:9222"
 
