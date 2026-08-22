@@ -16,6 +16,28 @@ LOG_MAX_JOBS = 1000
 MAX_JOBS = 1000
 MAX_PAGES = 100
 
+# 每瀏覽幾筆職缺，主動要求 Chrome 做一次記憶體清理。
+MEMORY_CLEANUP_INTERVAL = 20
+
+# 這支程式只需要文字資訊，圖片 / 影片 / 字型不需要下載與解碼。
+BLOCKED_RESOURCE_URLS = [
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.webp",
+    "*.svg",
+    "*.ico",
+    "*.mp4",
+    "*.webm",
+    "*.avi",
+    "*.mov",
+    "*.woff",
+    "*.woff2",
+    "*.ttf",
+    "*.otf",
+]
+
 CDP_URL = "http://127.0.0.1:9222"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -212,6 +234,123 @@ def get_current_page(context):
     print()
 
     return page
+
+
+def create_low_memory_cdp_session(context, page):
+    """
+    為指定 Page 建立 CDP Session，並套用低記憶體設定。
+
+    目的：
+    1. 關閉 HTTP cache
+    2. 阻擋圖片 / 影片 / 字型等不必要資源
+    3. 之後可透過同一個 Session 主動要求 V8 / Chrome 清理記憶體
+
+    這些操作都不需要把 Chrome 視窗 bring_to_front()。
+    """
+
+    session = context.new_cdp_session(page)
+
+    try:
+        session.send("Network.enable")
+    except Exception:
+        pass
+
+    try:
+        session.send(
+            "Network.setCacheDisabled",
+            {
+                "cacheDisabled": True
+            }
+        )
+    except Exception as e:
+        print(
+            f"設定停用 Cache 失敗："
+            f"{type(e).__name__}: {e}"
+        )
+
+    try:
+        session.send(
+            "Network.setBlockedURLs",
+            {
+                "urls": BLOCKED_RESOURCE_URLS
+            }
+        )
+    except Exception as e:
+        print(
+            f"設定資源阻擋失敗："
+            f"{type(e).__name__}: {e}"
+        )
+
+    return session
+
+
+def cleanup_chrome_memory(session):
+    """
+    在不開新 Tab、不切換視窗的情況下，
+    要求 Chrome 清理 Browser Cache 與 JavaScript Heap。
+    """
+
+    print(
+        "  執行 Chrome 記憶體清理..."
+    )
+
+    try:
+        session.send(
+            "Network.clearBrowserCache"
+        )
+    except Exception:
+        pass
+
+    try:
+        session.send(
+            "HeapProfiler.collectGarbage"
+        )
+    except Exception:
+        pass
+
+    # 部分 Chrome 版本支援，部分不支援。
+    # 不支援時忽略即可，不影響主要流程。
+    try:
+        session.send(
+            "Memory.forciblyPurgeJavaScriptMemory"
+        )
+    except Exception:
+        pass
+
+
+def navigate_without_history(
+        page,
+        url,
+        timeout=30000
+):
+    """
+    使用 location.replace() 導航。
+
+    與一般 page.goto() 相比，replace 不會一直把每一筆職缺
+    追加到同一個 Tab 的瀏覽歷史中，可降低長時間大量單向
+    Navigation 時的 History / BFCache 累積機會。
+    """
+
+    try:
+        page.evaluate(
+            "(url) => window.location.replace(url)",
+            url
+        )
+    except Exception:
+        # evaluate 觸發 navigation 時，執行環境可能立刻被銷毀。
+        # 只要頁面確實開始跳轉，這類例外可以忽略。
+        pass
+
+    try:
+        page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=timeout
+        )
+    except PlaywrightTimeoutError:
+        print(
+            "  頁面載入逾時，"
+            "但繼續嘗試讀取目前 DOM"
+        )
 
 
 # =========================================================
@@ -1167,9 +1306,11 @@ def simulate_reading(
 def visit_jobs(
         page,
         job_links,
+        cdp_session,
         view_duration_range=(10, 30),
         batch_size_range=(10, 15),
-        long_break_range=(30, 60)
+        long_break_range=(30, 60),
+        memory_cleanup_interval=MEMORY_CLEANUP_INTERVAL
 ):
     next_batch_target = random.randint(
         *batch_size_range
@@ -1196,7 +1337,7 @@ def visit_jobs(
     )
 
     print(
-        "接下來使用同一個 Chrome Tab 依序瀏覽。"
+        "接下來使用同一個 Chrome Tab 依序瀏覽，並定期清理 Chrome 記憶體。"
     )
 
     print(
@@ -1251,20 +1392,11 @@ def visit_jobs(
 
         try:
 
-            try:
-
-                page.goto(
-                    href,
-                    wait_until="domcontentloaded",
-                    timeout=30000
-                )
-
-            except PlaywrightTimeoutError:
-
-                print(
-                    "  頁面載入逾時，"
-                    "但繼續嘗試讀取目前 DOM"
-                )
+            navigate_without_history(
+                page,
+                href,
+                timeout=30000
+            )
 
             initial_load_pause = random.uniform(
                 1.5,
@@ -1418,6 +1550,19 @@ def visit_jobs(
 
             jobs_in_current_log += 1
 
+        # -------------------------------------------------
+        # 定期要求 Chrome 做記憶體清理。
+        # 不開新 Tab、不切換 Page、不 bring_to_front()。
+        # -------------------------------------------------
+
+        if (
+                memory_cleanup_interval > 0
+                and idx % memory_cleanup_interval == 0
+        ):
+            cleanup_chrome_memory(
+                cdp_session
+            )
+
         count_since_break += 1
 
         if idx < total_jobs:
@@ -1531,6 +1676,12 @@ def main():
             context
         )
 
+        # 搜尋列表階段也套用低記憶體設定。
+        list_cdp_session = create_low_memory_cdp_session(
+            context,
+            page
+        )
+
         print(
             "開始收集職缺連結..."
         )
@@ -1632,6 +1783,13 @@ def main():
         except Exception:
             pass
 
+        # 新的瀏覽 Page 是另一個 Target，必須重新建立 CDP Session
+        # 才能對它套用 cache / resource blocking / memory cleanup 設定。
+        browse_cdp_session = create_low_memory_cdp_session(
+            context,
+            page
+        )
+
         # -------------------------------------------------
         # 關閉原本搜尋列表 Page
         #
@@ -1640,6 +1798,10 @@ def main():
         # -------------------------------------------------
 
         try:
+            try:
+                list_cdp_session.detach()
+            except Exception:
+                pass
 
             job_list_page.close()
 
@@ -1688,11 +1850,11 @@ def main():
         #
         # job1
         #   ↓
-        # page.goto()
+        # location.replace()
         #   ↓
         # job2
         #   ↓
-        # page.goto()
+        # location.replace()
         #   ↓
         # job3
         #
@@ -1702,6 +1864,7 @@ def main():
         visit_jobs(
             page,
             job_links,
+            browse_cdp_session,
             view_duration_range=(
                 10,
                 30

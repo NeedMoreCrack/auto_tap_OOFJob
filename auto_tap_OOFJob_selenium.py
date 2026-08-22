@@ -15,6 +15,13 @@ import random
 
 LOG_MAX_JOBS = 1000
 
+# 每瀏覽幾筆職缺後做一次記憶體清理。
+# 不建立新分頁、不切換分頁，因此不會因清理動作搶視窗焦點。
+MEMORY_CLEANUP_INTERVAL = 20
+
+# 阻擋對職缺文字解析沒有必要、但容易增加 Chrome RAM 的大型資源。
+BLOCK_HEAVY_RESOURCES = True
+
 # 目前這支 Python Script 所在目錄
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -168,6 +175,156 @@ def attach_to_existing_chrome():
 
     return webdriver.Chrome(
         options=options
+    )
+
+
+def configure_low_memory_mode(driver):
+    """
+    啟用低記憶體模式。
+
+    這些操作不會開新分頁，也不會把 Chrome 視窗拉到前景：
+    1. 關閉瀏覽器網路快取
+    2. 阻擋圖片 / 影片 / 字型等非必要大型資源
+
+    注意：
+    - 不清 Cookie / LocalStorage / SessionStorage
+    - 不影響既有登入狀態
+    """
+
+    try:
+        driver.execute_cdp_cmd(
+            "Network.enable",
+            {}
+        )
+
+        driver.execute_cdp_cmd(
+            "Network.setCacheDisabled",
+            {
+                "cacheDisabled": True
+            }
+        )
+
+        if BLOCK_HEAVY_RESOURCES:
+            driver.execute_cdp_cmd(
+                "Network.setBlockedURLs",
+                {
+                    "urls": [
+                        "*.png",
+                        "*.jpg",
+                        "*.jpeg",
+                        "*.gif",
+                        "*.webp",
+                        "*.avif",
+                        "*.svg",
+                        "*.mp4",
+                        "*.webm",
+                        "*.mov",
+                        "*.avi",
+                        "*.woff",
+                        "*.woff2",
+                        "*.ttf",
+                        "*.otf"
+                    ]
+                }
+            )
+
+        print(
+            "Chrome 低記憶體模式已啟用"
+        )
+
+    except Exception as e:
+        print(
+            f"啟用 Chrome 低記憶體模式失敗："
+            f"{type(e).__name__}: {e}"
+        )
+
+
+def cleanup_browser_memory(driver):
+    """
+    清除目前分頁可安全回收的瀏覽器記憶體。
+
+    不關閉分頁、不建立新分頁、不切換分頁，
+    因此不會因這個函式把 Chrome 視窗搶到前景。
+    """
+
+    print(
+        "  執行 Chrome 記憶體清理..."
+    )
+
+    # 清 Browser Cache。
+    try:
+        driver.execute_cdp_cmd(
+            "Network.clearBrowserCache",
+            {}
+        )
+    except Exception:
+        pass
+
+    # 要求 V8 / Renderer 執行垃圾回收。
+    try:
+        driver.execute_cdp_cmd(
+            "HeapProfiler.collectGarbage",
+            {}
+        )
+    except Exception:
+        pass
+
+    # 部分 Chrome 版本支援這個 Memory Domain 指令。
+    # 不支援時直接忽略即可。
+    try:
+        driver.execute_cdp_cmd(
+            "Memory.forciblyPurgeJavaScriptMemory",
+            {}
+        )
+    except Exception:
+        pass
+
+
+def navigate_without_history(
+        driver,
+        url,
+        timeout=30
+):
+    """
+    在同一個 Tab 導航，但用 location.replace() 取代 driver.get()。
+
+    目的：
+    - 不建立新的 History Entry
+    - 降低大量職缺頁面在 Back/Forward Cache / History 中累積的機會
+    - 不開新分頁、不切換分頁，不會主動搶視窗焦點
+    """
+
+    old_url = driver.current_url
+
+    driver.execute_script(
+        "window.location.replace(arguments[0]);",
+        url
+    )
+
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+
+        try:
+            current_url = driver.current_url
+            ready_state = driver.execute_script(
+                "return document.readyState"
+            )
+
+            if (
+                    current_url != old_url
+                    and ready_state in {"interactive", "complete"}
+            ):
+                return
+
+        except Exception:
+            # Navigation 切換瞬間可能暫時取不到 DOM，稍後再檢查。
+            pass
+
+        time.sleep(0.2)
+
+    raise TimeoutError(
+        f"頁面導航逾時：{url}"
     )
 
 
@@ -1840,8 +1997,10 @@ def visit_jobs(
             # driver.switch_to.window(...)
             # =====================================
 
-            driver.get(
-                href
+            navigate_without_history(
+                driver,
+                href,
+                timeout=30
             )
 
             # =====================================
@@ -1979,6 +2138,20 @@ def visit_jobs(
             print(
                 "  瀏覽完成"
             )
+
+            # =====================================
+            # 定期清理 Chrome 記憶體
+            #
+            # 不開新分頁、不關閉分頁、不切換分頁。
+            # =====================================
+
+            if (
+                    MEMORY_CLEANUP_INTERVAL > 0
+                    and idx % MEMORY_CLEANUP_INTERVAL == 0
+            ):
+                cleanup_browser_memory(
+                    driver
+                )
 
         except Exception as e:
 
@@ -2145,6 +2318,10 @@ if __name__ == "__main__":
 
     print(
         "Chrome 連接成功"
+    )
+
+    configure_low_memory_mode(
+        driver
     )
 
     # =====================================================
@@ -2315,6 +2492,11 @@ if __name__ == "__main__":
             browse_handle
         )
 
+        # 新建立的瀏覽 Tab 重新套用低記憶體設定。
+        configure_low_memory_mode(
+            driver
+        )
+
         # 給 Chrome 一點時間處理舊 Renderer
         time.sleep(
             2
@@ -2415,14 +2597,16 @@ if __name__ == "__main__":
 r"""
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
     --remote-debugging-port=9222 `
-    --user-data-dir="C:\Users\User\selenium-chrome-profile"
+    --user-data-dir="C:\Users\User\selenium-chrome-profile" `
+    --disable-features=BackForwardCache
 """
 #
 # Mac Terminal:
 r"""
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/selenium-chrome-profile"
+  --user-data-dir="$HOME/selenium-chrome-profile" \
+  --disable-features=BackForwardCache
 """
 #
 # 3.
