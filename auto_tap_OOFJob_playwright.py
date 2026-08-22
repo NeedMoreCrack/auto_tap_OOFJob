@@ -1926,14 +1926,16 @@ if __name__ == "__main__":
 r"""
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
    --remote-debugging-port=9222 \
-   --user-data-dir="$HOME/selenium-chrome-profile"
+   --user-data-dir="$HOME/selenium-chrome-profile" \
+   --disable-features=BackForwardCache
 """
 #
 # Windows PowerShell:
 r"""
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
    --remote-debugging-port=9222 `
-   --user-data-dir="C:\Users\User\selenium-chrome-profile"
+   --user-data-dir="C:\Users\User\selenium-chrome-profile" `
+   --disable-features=BackForwardCache
 """
 #
 # 啟動後：
