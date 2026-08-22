@@ -19,6 +19,9 @@ MAX_PAGES = 100
 # 每瀏覽幾筆職缺，主動要求 Chrome 做一次記憶體清理。
 MEMORY_CLEANUP_INTERVAL = 20
 
+# 詳細頁維持使用 page.goto()。
+# RAM 主要在列表收集頁累積；詳細頁不使用 location.replace()，避免 navigation race。
+
 # 這支程式只需要文字資訊，圖片 / 影片 / 字型不需要下載與解碼。
 BLOCKED_RESOURCE_URLS = [
     "*.png",
@@ -318,32 +321,30 @@ def cleanup_chrome_memory(session):
         pass
 
 
-def navigate_without_history(
+def navigate_job_page(
         page,
         url,
         timeout=30000
 ):
     """
-    使用 location.replace() 導航。
+    使用 Playwright 原生 page.goto() 導航到職缺詳細頁。
 
-    與一般 page.goto() 相比，replace 不會一直把每一筆職缺
-    追加到同一個 Tab 的瀏覽歷史中，可降低長時間大量單向
-    Navigation 時的 History / BFCache 累積機會。
+    不再使用 window.location.replace()。
+    location.replace() 是由 page.evaluate() 觸發 navigation，
+    JavaScript execution context 會在換頁時被銷毀；如果後續
+    wait_for_load_state() 剛好讀到舊頁面的 load state，就可能
+    在新頁仍導航中時繼續執行，造成：
+
+        Execution context was destroyed
+
+    page.goto() 會由 Playwright 自己追蹤這次 navigation，
+    等到新文件進入 domcontentloaded 後才返回，較穩定。
     """
 
     try:
-        page.evaluate(
-            "(url) => window.location.replace(url)",
-            url
-        )
-    except Exception:
-        # evaluate 觸發 navigation 時，執行環境可能立刻被銷毀。
-        # 只要頁面確實開始跳轉，這類例外可以忽略。
-        pass
-
-    try:
-        page.wait_for_load_state(
-            "domcontentloaded",
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
             timeout=timeout
         )
     except PlaywrightTimeoutError:
@@ -1392,7 +1393,7 @@ def visit_jobs(
 
         try:
 
-            navigate_without_history(
+            navigate_job_page(
                 page,
                 href,
                 timeout=30000

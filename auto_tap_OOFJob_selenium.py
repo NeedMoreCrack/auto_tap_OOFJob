@@ -280,54 +280,6 @@ def cleanup_browser_memory(driver):
         pass
 
 
-def navigate_without_history(
-        driver,
-        url,
-        timeout=30
-):
-    """
-    在同一個 Tab 導航，但用 location.replace() 取代 driver.get()。
-
-    目的：
-    - 不建立新的 History Entry
-    - 降低大量職缺頁面在 Back/Forward Cache / History 中累積的機會
-    - 不開新分頁、不切換分頁，不會主動搶視窗焦點
-    """
-
-    old_url = driver.current_url
-
-    driver.execute_script(
-        "window.location.replace(arguments[0]);",
-        url
-    )
-
-    start_time = time.time()
-
-    while time.time() - start_time < timeout:
-
-        try:
-            current_url = driver.current_url
-            ready_state = driver.execute_script(
-                "return document.readyState"
-            )
-
-            if (
-                    current_url != old_url
-                    and ready_state in {"interactive", "complete"}
-            ):
-                return
-
-        except Exception:
-            # Navigation 切換瞬間可能暫時取不到 DOM，稍後再檢查。
-            pass
-
-        time.sleep(0.2)
-
-    raise TimeoutError(
-        f"頁面導航逾時：{url}"
-    )
-
-
 # 使用目前分頁
 def get_current_page(driver):
     """
@@ -1988,19 +1940,17 @@ def visit_jobs(
         try:
 
             # =====================================
-            # 使用目前同一個 Tab 開啟職缺
+            # 使用目前同一個 Tab 開啟職缺。
             #
-            # 不再使用：
+            # 使用 driver.get() 讓 Selenium / ChromeDriver
+            # 正常等待 navigation 完成，避免用 location.replace()
+            # 造成頁面切換期間的 execution context / readyState race。
             #
-            # driver.switch_to.new_window("tab")
-            # driver.close()
-            # driver.switch_to.window(...)
+            # 不建立新分頁、不關閉分頁、不切換分頁。
             # =====================================
 
-            navigate_without_history(
-                driver,
-                href,
-                timeout=30
+            driver.get(
+                href
             )
 
             # =====================================
