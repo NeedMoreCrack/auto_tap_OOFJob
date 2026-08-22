@@ -51,8 +51,8 @@ def create_log_file():
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
         log_path = (
-            LOG_DIR
-            / f"OOF_{timestamp}.log"
+                LOG_DIR
+                / f"OOF_{timestamp}.log"
         )
 
         if not log_path.exists():
@@ -154,51 +154,64 @@ def attach_to_existing_chrome(playwright):
     return browser, context
 
 
-def switch_to_job_list_page(
-        context,
-        url_keyword="104.com.tw/jobs/search"
-):
+def get_current_page(context):
     """
-    從目前 Chrome 已開啟的頁面中，
-    找出 求職網 職缺搜尋頁。
+    取得目前 Chrome 中要交給程式使用的分頁。
+
+    優先找目前有焦點的頁面。
+    如果 Chrome 不在前景，document.hasFocus() 可能全部為 False，
+    此時退回使用 context.pages[-1]。
+
+    不檢查網址。
+    不寫死 104 網址。
+    不使用 bring_to_front()。
     """
 
-    print("目前所有分頁:")
+    pages = context.pages
 
-    matched_page = None
+    if not pages:
+        raise RuntimeError(
+            "目前 Chrome 沒有任何可用分頁。"
+        )
 
-    for page in context.pages:
+    focused_page = None
 
+    for page in pages:
         try:
-            print(
-                f"  - {page.url}"
-            )
-
-            if (
-                    url_keyword in page.url
-                    and matched_page is None
-            ):
-                matched_page = page
-
+            if page.evaluate("() => document.hasFocus()"):
+                focused_page = page
+                break
         except Exception:
             continue
 
-    if matched_page is None:
-        raise RuntimeError(
-            "找不到 求職網 職缺搜尋列表頁。"
-        )
+    page = focused_page or pages[-1]
 
-    try:
-        matched_page.bring_to_front()
-    except Exception:
-        pass
-
+    print()
     print(
-        f"\n已切換到職缺列表："
-        f"{matched_page.url}\n"
+        "=" * 100
+    )
+    print(
+        "使用目前 Chrome 分頁"
+    )
+    print(
+        f"頁面標題：{page.title()}"
+    )
+    print(
+        f"頁面網址：{page.url}"
     )
 
-    return matched_page
+    if focused_page is None:
+        print(
+            "目前沒有偵測到有焦點的分頁，"
+            "改用 Chrome Context 中最後一個分頁。"
+        )
+
+    print(
+        "=" * 100
+    )
+    print()
+
+    return page
 
 
 # =========================================================
@@ -468,8 +481,8 @@ def collect_job_links(
             break
 
         current_page_number = (
-            start_page
-            + offset
+                start_page
+                + offset
         )
 
         target_url = set_page_number(
@@ -571,8 +584,8 @@ def collect_job_links(
                 break
 
         new_count = (
-            len(seen)
-            - count_before
+                len(seen)
+                - count_before
         )
 
         print(
@@ -773,8 +786,8 @@ def extract_value_after_label(
                 ):
 
                     next_index = (
-                        index
-                        + offset
+                            index
+                            + offset
                     )
 
                     if next_index >= len(
@@ -849,8 +862,8 @@ def extract_multi_value_after_label(
                 ):
 
                     next_index = (
-                        index
-                        + offset
+                            index
+                            + offset
                     )
 
                     if next_index >= len(
@@ -1207,7 +1220,7 @@ def visit_jobs(
             )
 
             print(
-                "目前 LOG 已達 50 筆，"
+                f"目前 LOG 已達 {LOG_MAX_JOBS} 筆，"
                 "建立新的 LOG"
             )
 
@@ -1506,13 +1519,25 @@ def main():
             "Chrome 連接成功"
         )
 
-        page = switch_to_job_list_page(
+        # -------------------------------------------------
+        # 直接使用目前 Chrome 的頁面。
+        #
+        # 不寫死 104 網址，
+        # 不使用 bring_to_front()，
+        # 避免主動把 Chrome 拉到最前面。
+        # -------------------------------------------------
+
+        page = get_current_page(
             context
         )
 
         print(
             "開始收集職缺連結..."
         )
+
+        # -------------------------------------------------
+        # 使用搜尋列表分頁收集所有職缺 URL
+        # -------------------------------------------------
 
         job_links = collect_job_links(
             page,
@@ -1540,7 +1565,7 @@ def main():
             )
 
             print(
-                "1. 是否停留在 求職網 搜尋列表"
+                "1. 是否停留在 104 搜尋列表"
             )
 
             print(
@@ -1548,16 +1573,131 @@ def main():
             )
 
             print(
-                "3. 求職網 DOM 是否改版"
+                "3. 104 DOM 是否改版"
             )
 
             return
+
+        # =================================================
+        # 搜尋列表使用完畢
+        #
+        # 搜尋列表跑過大量 page= 分頁，
+        # 可能累積：
+        #
+        # DOM
+        # JavaScript Context
+        # Cache
+        # Renderer Memory
+        #
+        # 所以收集完後直接捨棄這個 Page。
+        # =================================================
+
+        print()
+
+        print(
+            "=" * 100
+        )
+
+        print(
+            "職缺連結收集完成"
+        )
+
+        print(
+            "準備切換到新的瀏覽分頁..."
+        )
+
+        print(
+            "=" * 100
+        )
+
+        job_list_page = page
+
+        # -------------------------------------------------
+        # 只建立這一次新的 Page
+        #
+        # 後面的 1 ~ 1000 筆職缺，
+        # 全部使用同一個 Page。
+        # -------------------------------------------------
+
+        page = context.new_page()
+
+        try:
+
+            page.goto(
+                "about:blank",
+                wait_until="commit",
+                timeout=10000
+            )
+
+        except Exception:
+            pass
+
+        # -------------------------------------------------
+        # 關閉原本搜尋列表 Page
+        #
+        # 讓 Chrome 有機會直接銷毀舊 Renderer，
+        # 釋放前面收集職缺時累積的記憶體。
+        # -------------------------------------------------
+
+        try:
+
+            job_list_page.close()
+
+            print(
+                "原職缺列表分頁已關閉"
+            )
+
+        except Exception as e:
+
+            print(
+                f"關閉原職缺列表分頁失敗："
+                f"{type(e).__name__}: "
+                f"{e}"
+            )
+
+        # -------------------------------------------------
+        # 給 Chrome 一點時間處理舊 Renderer
+        # -------------------------------------------------
+
+        time.sleep(
+            2
+        )
+
+        print()
+
+        print(
+            "新的瀏覽分頁建立完成"
+        )
+
+        print(
+            "後續全部職缺都會使用同一個分頁。"
+        )
+
+        print(
+            "不會再建立新的 Tab。"
+        )
 
         print()
 
         print(
             "開始逐一瀏覽職缺..."
         )
+
+        # -------------------------------------------------
+        # 後續：
+        #
+        # job1
+        #   ↓
+        # page.goto()
+        #   ↓
+        # job2
+        #   ↓
+        # page.goto()
+        #   ↓
+        # job3
+        #
+        # 始終使用相同 Page。
+        # -------------------------------------------------
 
         visit_jobs(
             page,

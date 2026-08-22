@@ -171,55 +171,65 @@ def attach_to_existing_chrome():
     )
 
 
-# 切換回職缺表
-def switch_to_job_list_page(
-        driver,
-        url_keyword="求職網.com.tw/jobs/search"
-):
+# 使用目前分頁
+def get_current_page(driver):
     """
-    列出目前所有分頁，
-    自動切換到 求職網 職缺搜尋列表。
+    直接使用 Selenium 目前所控制的 Chrome 分頁。
+
+    不檢查網址。
+    不寫死 104 / 求職網網址。
+    不掃描其他分頁。
+    不使用 switch_to.window() 去尋找特定頁面。
+
+    使用方式：
+    1. 手動開啟 Chrome
+    2. 切到希望程式開始收集職缺的頁面
+    3. 再執行這支 Python
     """
 
-    print("目前所有分頁:")
+    try:
 
-    matched_handle = None
+        current_handle = driver.current_window_handle
 
-    for handle in driver.window_handles:
+    except Exception as e:
 
-        driver.switch_to.window(
-            handle
+        raise RuntimeError(
+            f"無法取得目前 Chrome 分頁："
+            f"{type(e).__name__}: {e}"
         )
 
-        print(
-            f"  - {handle} | "
-            f"{driver.current_url}"
-        )
+    print()
 
-        if (
-                url_keyword in driver.current_url
-                and matched_handle is None
-        ):
-            matched_handle = handle
+    print(
+        "=" * 100
+    )
 
-    if matched_handle:
+    print(
+        "使用目前 Chrome 分頁"
+    )
 
-        driver.switch_to.window(
-            matched_handle
-        )
+    print(
+        f"分頁 Handle："
+        f"{current_handle}"
+    )
 
-        print(
-            f"\n已切換到職缺列表："
-            f"{driver.current_url}\n"
-        )
+    print(
+        f"頁面標題："
+        f"{driver.title}"
+    )
 
-    else:
+    print(
+        f"頁面網址："
+        f"{driver.current_url}"
+    )
 
-        print(
-            "\n警告：找不到 求職網 職缺搜尋列表。\n"
-        )
+    print(
+        "=" * 100
+    )
 
-    return driver
+    print()
+
+    return current_handle
 
 
 # =========================================================
@@ -387,8 +397,8 @@ def scroll_to_bottom_and_trigger_load(driver):
         )
 
         bottom_y = (
-            page_height
-            - viewport_height
+                page_height
+                - viewport_height
         )
 
     # =====================================================
@@ -663,8 +673,8 @@ def wait_for_job_cards(
     start_time = time.time()
 
     while (
-        time.time() - start_time
-        < timeout
+            time.time() - start_time
+            < timeout
     ):
 
         cards, selector = find_cards(
@@ -757,8 +767,8 @@ def collect_job_links(
             break
 
         current_page_number = (
-            start_page
-            + offset
+                start_page
+                + offset
         )
 
         target_url = set_page_number(
@@ -879,8 +889,8 @@ def collect_job_links(
                 break
 
         new_count = (
-            len(seen)
-            - count_before
+                len(seen)
+                - count_before
         )
 
         print(
@@ -1541,8 +1551,8 @@ def wait_for_new_content(
     start_time = time.time()
 
     while (
-        time.time() - start_time
-        < timeout
+            time.time() - start_time
+            < timeout
     ):
 
         new_height = driver.execute_script(
@@ -2096,7 +2106,7 @@ if __name__ == "__main__":
     )
 
     print(
-        "OOF 自動職缺瀏覽程式"
+        "OOF Selenium 自動職缺瀏覽程式"
     )
 
     print(
@@ -2138,10 +2148,18 @@ if __name__ == "__main__":
     )
 
     # =====================================================
-    # 3. 找 求職網 職缺列表
+    # 3. 直接使用目前分頁
+    #
+    # 不再：
+    # - 掃描所有分頁
+    # - 比對固定網址
+    # - switch_to.window() 尋找職缺列表
+    #
+    # 執行程式前，
+    # 手動停在希望開始收集的搜尋結果頁即可。
     # =====================================================
 
-    switch_to_job_list_page(
+    current_handle = get_current_page(
         driver
     )
 
@@ -2183,7 +2201,7 @@ if __name__ == "__main__":
         )
 
         print(
-            "1. 是否停留在 求職網 搜尋列表"
+            "1. 執行程式前是否已停在正確的職缺搜尋結果頁"
         )
 
         print(
@@ -2191,20 +2209,154 @@ if __name__ == "__main__":
         )
 
         print(
-            "3. 求職網 DOM 是否改版"
+            "3. 求職網站 DOM 是否改版"
         )
 
     else:
 
         # =================================================
-        # 6. 開始瀏覽
+        # 6. 收集完成後建立「一次」新的瀏覽分頁
+        #
+        # 目的：
+        # - 原搜尋列表頁跑過大量 page= 分頁
+        # - 可能累積 DOM / JS / Cache / Renderer Memory
+        # - 收集完成後直接關閉舊列表頁
+        #
+        # 後續所有職缺只使用這個新分頁。
+        # 不再建立其他 Tab。
         # =================================================
+
+        print()
+
+        print(
+            "=" * 100
+        )
+
+        print(
+            "職缺連結收集完成"
+        )
+
+        print(
+            "建立新的瀏覽分頁，"
+            "並關閉原本職缺列表分頁..."
+        )
+
+        print(
+            "=" * 100
+        )
+
+        # 收集完成時目前所在的搜尋列表分頁
+        job_list_handle = (
+            driver.current_window_handle
+        )
+
+        # -------------------------------------------------
+        # 只建立這一次新 Tab
+        #
+        # Selenium 4 的 new_window("tab") 會：
+        # 1. 建立新分頁
+        # 2. 自動切換到新分頁
+        #
+        # 後續不再 new_window()
+        # -------------------------------------------------
+
+        driver.switch_to.new_window(
+            "tab"
+        )
+
+        browse_handle = (
+            driver.current_window_handle
+        )
+
+        try:
+
+            driver.get(
+                "about:blank"
+            )
+
+        except Exception:
+            pass
+
+        # -------------------------------------------------
+        # 關閉舊搜尋列表分頁
+        #
+        # 這裡只在「收集完成」時做一次分頁切換。
+        # 後續 visit_jobs() 不會再切換分頁。
+        # -------------------------------------------------
+
+        try:
+
+            driver.switch_to.window(
+                job_list_handle
+            )
+
+            driver.close()
+
+            print(
+                "原職缺列表分頁已關閉"
+            )
+
+        except Exception as e:
+
+            print(
+                f"關閉原職缺列表分頁失敗："
+                f"{type(e).__name__}: "
+                f"{e}"
+            )
+
+        # -------------------------------------------------
+        # 回到剛才建立的新瀏覽分頁
+        #
+        # 這是最後一次 switch_to.window()。
+        # 後續全部都在同一分頁 driver.get(href)。
+        # -------------------------------------------------
+
+        driver.switch_to.window(
+            browse_handle
+        )
+
+        # 給 Chrome 一點時間處理舊 Renderer
+        time.sleep(
+            2
+        )
+
+        print()
+
+        print(
+            "新的瀏覽分頁建立完成"
+        )
+
+        print(
+            "後續全部職缺都會使用同一個分頁。"
+        )
+
+        print(
+            "不會再建立新的 Tab。"
+        )
 
         print()
 
         print(
             "開始逐一瀏覽職缺..."
         )
+
+        # =================================================
+        # 7. 開始瀏覽
+        #
+        # 後續：
+        #
+        # job1
+        #   ↓
+        # driver.get()
+        #   ↓
+        # job2
+        #   ↓
+        # driver.get()
+        #   ↓
+        # job3
+        #
+        # 始終使用同一個 Tab。
+        # =================================================
 
         visit_jobs(
 
@@ -2276,6 +2428,7 @@ r"""
 # 3.
 # Chrome 中：
 # - 通過 Cloudflare
+# - 手動停在希望程式開始收集職缺的搜尋結果頁
 #
 # 4.
 # 執行 Python Script
