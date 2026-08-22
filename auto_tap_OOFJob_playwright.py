@@ -5,6 +5,8 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import random
 import time
 
+import yaml
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 
@@ -12,9 +14,125 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # 基本設定
 # =========================================================
 
-LOG_MAX_JOBS = 1000
-MAX_JOBS = 1000
-MAX_PAGES = 100
+SCRIPT_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = SCRIPT_DIR / "config.yaml"
+
+# ---------------------------------------------------------
+# 預設設定
+#
+# config.yaml 不存在、欄位缺少、格式錯誤或值不合法時，
+# 對應欄位會自動退回這裡的預設值。
+# ---------------------------------------------------------
+
+DEFAULT_CONFIG = {
+    "log_max_jobs": 500,
+    "max_jobs": 500,
+    "max_pages": 50,
+}
+
+
+def load_config():
+    """
+    讀取目前程式目錄下的 config.yaml。
+
+    支援設定：
+        log_max_jobs
+        max_jobs
+        max_pages
+
+    若：
+        - config.yaml 不存在
+        - YAML 格式錯誤
+        - 設定不是 dict
+        - 欄位不存在
+        - 值不是正整數
+
+    則該欄位使用 DEFAULT_CONFIG 的預設值。
+    """
+
+    config = DEFAULT_CONFIG.copy()
+
+    if not CONFIG_PATH.exists():
+        print(
+            f"找不到設定檔：{CONFIG_PATH.name}"
+        )
+        print(
+            "使用預設設定："
+            f"LOG_MAX_JOBS={config['log_max_jobs']}、"
+            f"MAX_JOBS={config['max_jobs']}、"
+            f"MAX_PAGES={config['max_pages']}"
+        )
+        return config
+
+    try:
+        with open(
+                CONFIG_PATH,
+                "r",
+                encoding="utf-8"
+        ) as file:
+            loaded = yaml.safe_load(file)
+
+    except Exception as e:
+        print(
+            f"讀取設定檔失敗："
+            f"{type(e).__name__}: {e}"
+        )
+        print(
+            "改用預設設定。"
+        )
+        return config
+
+    if loaded is None:
+        loaded = {}
+
+    if not isinstance(loaded, dict):
+        print(
+            "設定檔格式錯誤："
+            "config.yaml 最外層必須是 YAML mapping。"
+        )
+        print(
+            "改用預設設定。"
+        )
+        return config
+
+    for key, default_value in DEFAULT_CONFIG.items():
+        value = loaded.get(
+            key,
+            default_value
+        )
+
+        if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and value > 0
+        ):
+            config[key] = value
+
+        else:
+            print(
+                f"設定 {key}={value!r} 不合法，"
+                f"改用預設值 {default_value}"
+            )
+
+    print(
+        f"已讀取設定檔：{CONFIG_PATH}"
+    )
+
+    print(
+        "目前設定："
+        f"LOG_MAX_JOBS={config['log_max_jobs']}、"
+        f"MAX_JOBS={config['max_jobs']}、"
+        f"MAX_PAGES={config['max_pages']}"
+    )
+
+    return config
+
+
+CONFIG = load_config()
+
+LOG_MAX_JOBS = CONFIG["log_max_jobs"]
+MAX_JOBS = CONFIG["max_jobs"]
+MAX_PAGES = CONFIG["max_pages"]
 
 # 每瀏覽幾筆職缺，主動要求 Chrome 做一次記憶體清理。
 MEMORY_CLEANUP_INTERVAL = 20
@@ -43,7 +161,6 @@ BLOCKED_RESOURCE_URLS = [
 
 CDP_URL = "http://127.0.0.1:9222"
 
-SCRIPT_DIR = Path(__file__).resolve().parent
 LOG_DIR = SCRIPT_DIR / "log"
 
 CARD_SELECTORS = [
@@ -1910,7 +2027,7 @@ if __name__ == "__main__":
 #
 # macOS:
 #
-#   python3 -m pip install playwright
+#   python3 -m pip install playwright pyyaml
 #
 # 因為這版是 connect_over_cdp() 接到已經開啟的 Google Chrome，
 # 通常不需要另外執行：

@@ -8,12 +8,148 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import time
 import random
 
+import yaml
+
 
 # =========================================================
-# LOG 設定
+# 基本設定
 # =========================================================
 
-LOG_MAX_JOBS = 1000
+# 目前這支 Python Script 所在目錄
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+# 共用 YAML 設定檔
+CONFIG_PATH = SCRIPT_DIR / "config.yaml"
+
+# ---------------------------------------------------------
+# 預設設定
+#
+# config.yaml 不存在、格式錯誤、欄位缺少或值不合法時，
+# 對應欄位自動使用這裡的預設值。
+# ---------------------------------------------------------
+
+DEFAULT_CONFIG = {
+    "log_max_jobs": 500,
+    "max_jobs": 500,
+    "max_pages": 50,
+}
+
+
+def load_config():
+    """
+    讀取目前程式目錄下的 config.yaml。
+
+    支援設定：
+        log_max_jobs
+        max_jobs
+        max_pages
+
+    若設定檔不存在、YAML 格式錯誤、欄位缺少，
+    或欄位不是正整數，則使用預設值。
+    """
+
+    config = DEFAULT_CONFIG.copy()
+
+    if not CONFIG_PATH.exists():
+
+        print(
+            f"找不到設定檔：{CONFIG_PATH.name}"
+        )
+
+        print(
+            "使用預設設定："
+            f"LOG_MAX_JOBS={config['log_max_jobs']}、"
+            f"MAX_JOBS={config['max_jobs']}、"
+            f"MAX_PAGES={config['max_pages']}"
+        )
+
+        return config
+
+    try:
+
+        with open(
+                CONFIG_PATH,
+                "r",
+                encoding="utf-8"
+        ) as file:
+
+            loaded = yaml.safe_load(
+                file
+            )
+
+    except Exception as e:
+
+        print(
+            f"讀取設定檔失敗："
+            f"{type(e).__name__}: {e}"
+        )
+
+        print(
+            "改用預設設定。"
+        )
+
+        return config
+
+    if loaded is None:
+        loaded = {}
+
+    if not isinstance(
+            loaded,
+            dict
+    ):
+
+        print(
+            "設定檔格式錯誤："
+            "config.yaml 最外層必須是 YAML mapping。"
+        )
+
+        print(
+            "改用預設設定。"
+        )
+
+        return config
+
+    for key, default_value in DEFAULT_CONFIG.items():
+
+        value = loaded.get(
+            key,
+            default_value
+        )
+
+        if (
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and value > 0
+        ):
+
+            config[key] = value
+
+        else:
+
+            print(
+                f"設定 {key}={value!r} 不合法，"
+                f"改用預設值 {default_value}"
+            )
+
+    print(
+        f"已讀取設定檔：{CONFIG_PATH}"
+    )
+
+    print(
+        "目前設定："
+        f"LOG_MAX_JOBS={config['log_max_jobs']}、"
+        f"MAX_JOBS={config['max_jobs']}、"
+        f"MAX_PAGES={config['max_pages']}"
+    )
+
+    return config
+
+
+CONFIG = load_config()
+
+LOG_MAX_JOBS = CONFIG["log_max_jobs"]
+MAX_JOBS = CONFIG["max_jobs"]
+MAX_PAGES = CONFIG["max_pages"]
 
 # 每瀏覽幾筆職缺後做一次記憶體清理。
 # 不建立新分頁、不切換分頁，因此不會因清理動作搶視窗焦點。
@@ -21,9 +157,6 @@ MEMORY_CLEANUP_INTERVAL = 20
 
 # 阻擋對職缺文字解析沒有必要、但容易增加 Chrome RAM 的大型資源。
 BLOCK_HEAVY_RESOURCES = True
-
-# 目前這支 Python Script 所在目錄
-SCRIPT_DIR = Path(__file__).resolve().parent
 
 # log 資料夾
 LOG_DIR = SCRIPT_DIR / "log"
@@ -802,8 +935,8 @@ def wait_for_job_cards(
 
 def collect_job_links(
         driver,
-        max_jobs=1000,
-        max_pages=100,
+        max_jobs=MAX_JOBS,
+        max_pages=MAX_PAGES,
         pause_range=(1.2, 2.5)
 ):
     """
@@ -1842,7 +1975,7 @@ def visit_jobs(
         學歷
         薪資
 
-    每 50 筆：
+    每達到 LOG_MAX_JOBS 筆：
         建立新的 LOG
     """
 
@@ -1908,7 +2041,7 @@ def visit_jobs(
             )
 
             print(
-                "目前 LOG 已達 50 筆，"
+                f"目前 LOG 已達 {LOG_MAX_JOBS} 筆，"
                 "建立新的 LOG"
             )
 
@@ -2535,6 +2668,12 @@ if __name__ == "__main__":
         )
 
 
+# =========================================================
+# Python 套件
+# =========================================================
+#
+# pip install selenium pyyaml
+#
 # =========================================================
 # 使用方式
 # =========================================================

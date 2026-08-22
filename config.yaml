@@ -1,0 +1,16 @@
+# OOFJob 共用設定
+#
+# Playwright / Selenium 都可以讀取這一份 config.yaml。
+# 若此檔案不存在，程式會自動使用：
+#   log_max_jobs: 500
+#   max_jobs: 500
+#   max_pages: 50
+
+# 每一個 LOG 最多記錄幾筆職缺
+log_max_jobs: 1000
+
+# 最多蒐集 / 瀏覽多少筆職缺
+max_jobs: 1000
+
+# 搜尋列表最多查找多少頁
+max_pages: 100
