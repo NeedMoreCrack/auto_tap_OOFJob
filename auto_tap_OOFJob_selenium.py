@@ -177,7 +177,7 @@ def get_current_page(driver):
     直接使用 Selenium 目前所控制的 Chrome 分頁。
 
     不檢查網址。
-    不寫死 104 / 求職網網址。
+    不寫死 求職網網址。
     不掃描其他分頁。
     不使用 switch_to.window() 去尋找特定頁面。
 
