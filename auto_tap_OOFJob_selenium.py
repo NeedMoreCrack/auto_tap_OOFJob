@@ -1,6 +1,3 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -8,7 +5,119 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import time
 import random
 
+# =========================================================
+# 第三方套件自動檢查 / 安裝
+# =========================================================
+
+import importlib
+import subprocess
+import sys
+
+
+REQUIRED_PACKAGES = {
+    "yaml": "PyYAML",
+    "selenium": "selenium",
+}
+
+
+def ensure_required_packages():
+    """
+    檢查目前 Python 環境是否已安裝必要套件。
+
+    若缺少套件：
+        自動使用目前執行中的 Python：
+        python -m pip install <package>
+
+    注意：
+        - 必須有 pip
+        - 第一次安裝時必須可以連上網路
+        - 安裝完成後會直接繼續執行，不需要重新啟動程式
+    """
+
+    missing_packages = []
+
+    for import_name, pip_name in REQUIRED_PACKAGES.items():
+
+        try:
+            importlib.import_module(
+                import_name
+            )
+
+        except ImportError:
+            missing_packages.append(
+                pip_name
+            )
+
+    if not missing_packages:
+
+        print(
+            "必要 Python 套件已安裝完成"
+        )
+
+        return
+
+    print(
+        "偵測到缺少 Python 套件："
+        + ", ".join(missing_packages)
+    )
+
+    for pip_name in missing_packages:
+
+        print(
+            f"開始安裝：{pip_name}"
+        )
+
+        try:
+
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    pip_name
+                ]
+            )
+
+        except subprocess.CalledProcessError as e:
+
+            raise RuntimeError(
+                f"自動安裝 {pip_name} 失敗，"
+                f"請手動執行："
+                f"{sys.executable} -m pip install {pip_name}"
+            ) from e
+
+        print(
+            f"安裝完成：{pip_name}"
+        )
+
+    # 再驗證一次，避免 pip 看似成功但目前環境仍無法 import。
+    for import_name, pip_name in REQUIRED_PACKAGES.items():
+
+        try:
+            importlib.import_module(
+                import_name
+            )
+
+        except ImportError as e:
+
+            raise RuntimeError(
+                f"套件 {pip_name} 安裝後仍無法 import。"
+            ) from e
+
+    print(
+        "所有必要 Python 套件準備完成"
+    )
+
+
+ensure_required_packages()
+
+
 import yaml
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
 
 
 # =========================================================
@@ -2672,7 +2781,7 @@ if __name__ == "__main__":
 # Python 套件
 # =========================================================
 #
-# pip install selenium pyyaml
+# 若缺少 Selenium / PyYAML，程式啟動時會自動安裝。
 #
 # =========================================================
 # 使用方式
